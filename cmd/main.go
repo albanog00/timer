@@ -15,7 +15,7 @@ import (
 
 const (
 	tick    = time.Millisecond * 100
-	timeout = time.Minute
+	timeout = time.Second * 20
 )
 
 type model struct {
@@ -77,14 +77,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keymaps.add):
 			m.adding = true
 
-			m.keymaps.stopAdd.SetEnabled(true)
-			m.keymaps.send.SetEnabled(true)
-			m.keymaps.add.SetEnabled(false)
-			m.keymaps.stop.SetEnabled(false)
-			m.keymaps.start.SetEnabled(false)
-			m.keymaps.reset.SetEnabled(false)
-			m.keymaps.quit.SetEnabled(false)
-
+			m.keymaps = m.keymapsToggleOnAdd()
 			m.textinput.Focus()
 		}
 	}
@@ -108,18 +101,25 @@ func (m model) input(msg tea.KeyMsg) (model, tea.Cmd) {
 		m.adding = false
 		m.err = nil
 
-		m.keymaps.stopAdd.SetEnabled(false)
-		m.keymaps.send.SetEnabled(false)
-		m.keymaps.add.SetEnabled(true)
-		m.keymaps.stop.SetEnabled(true)
-		m.keymaps.start.SetEnabled(true)
-		m.keymaps.reset.SetEnabled(true)
-		m.keymaps.quit.SetEnabled(true)
-
+		m.keymaps = m.keymapsToggleOnAdd()
 		m.textinput.Reset()
 	}
 
 	return m, cmd
+}
+
+func (m model) keymapsToggleOnAdd() keymaps {
+	m.keymaps.stop.SetEnabled(!m.adding && m.timer.Running())
+	m.keymaps.start.SetEnabled(!m.adding && !m.timer.Running())
+
+	m.keymaps.reset.SetEnabled(!m.adding)
+	m.keymaps.quit.SetEnabled(!m.adding)
+	m.keymaps.add.SetEnabled(!m.adding)
+
+	m.keymaps.stopAdd.SetEnabled(m.adding)
+	m.keymaps.send.SetEnabled(m.adding)
+
+	return m.keymaps
 }
 
 func (m model) helpView() string {
