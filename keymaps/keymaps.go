@@ -45,7 +45,7 @@ func (m Model) Update(msg tea.Cmd) (Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	return m.help.ShortHelpView([]key.Binding{
+	return " " + m.help.ShortHelpView([]key.Binding{
 		m.Start,
 		m.Stop,
 		m.Add,
