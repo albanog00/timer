@@ -2,6 +2,7 @@ package main
 
 import (
 	"albanog/timer/keymaps"
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -16,10 +17,24 @@ import (
 )
 
 func main() {
-	timeout := time.Second * 10
+	if len(os.Args) < 2 {
+		fmt.Printf("usage: %s <duration>.\n", os.Args[0])
+		os.Exit(1)
+	}
+
+	if os.Args[1] == "help" {
+		fmt.Printf("usage: %s <duration>.\n", os.Args[0])
+		os.Exit(0)
+	}
+	timeout, err := time.ParseDuration(os.Args[1])
+	if err != nil {
+		fmt.Printf("Invalid duration provided.\nExample: 10m (10 minutes)")
+		os.Exit(1)
+	}
+
 	m := New(timeout)
 	if _, err := tea.NewProgram(m).Run(); err != nil {
-		fmt.Printf("There's been an error: %v", err)
+		fmt.Printf("There's been an error: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -50,7 +65,7 @@ type model struct {
 	adding   bool
 	quitting bool
 
-	logs string
+	logs []string
 	err  error
 }
 
@@ -67,7 +82,7 @@ func New(timeout time.Duration) model {
 		passed:    0,
 		adding:    false,
 		quitting:  false,
-		logs:      "",
+		logs:      make([]string, 0),
 		err:       nil,
 	}
 }
@@ -82,7 +97,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.timer.Running() {
 			return m, nil
 		}
-
 		var cmds []tea.Cmd
 		var cmd tea.Cmd
 
@@ -154,9 +168,9 @@ func (m model) input(msg tea.KeyMsg) (model, tea.Cmd) {
 				m.total += addTime
 				m.end = m.end.Add(addTime)
 				if addTime < time.Duration(0) {
-					m.logs += fmt.Sprintf(" > Removed %s\n", addTime.Abs().String())
+					m.logs = append(m.logs, fmt.Sprintf(" > Removed %s", addTime.Abs().String()))
 				} else {
-					m.logs += fmt.Sprintf(" > Added %s\n", addTime.String())
+					m.logs = append(m.logs, fmt.Sprintf(" > Added %s", addTime.String()))
 				}
 			}
 		}
@@ -182,35 +196,33 @@ func (m model) keymapsToggleOnAdd() keymaps.Model {
 }
 
 func (m model) View() string {
-	s := fmt.Sprintf(" %s - %s\n",
+	builder := &bytes.Buffer{}
+	builder.WriteString(fmt.Sprintf(" %s - %s\n",
 		m.start.Format("Start: 15:04:05"),
 		m.end.Format("End: 15:04:05"),
-	)
-	s += fmt.Sprintf("\n - %s\n %s", m.timer.View(), m.progress.View())
+	))
+	builder.WriteString(fmt.Sprintf("\n - %s\n %s", m.timer.View(), m.progress.View()))
 
 	if !m.quitting {
-		if len(m.logs) > 0 {
-			s += "\n" + m.logs
+		for _, line := range m.logs {
+			builder.WriteString(fmt.Sprintf("\n%s", line))
 		}
-
 		if m.adding {
-			s += fmt.Sprintf(
+			builder.WriteString(fmt.Sprintf(
 				"\n Please insert time to add.\n\n %s\n\n %s\n",
 				m.textinput.View(),
 				"(esc to go back)",
-			)
+			))
 		}
-
 		if m.err != nil {
-			s += fmt.Sprintf("\n%s\n", m.err.Error())
+			builder.WriteString(fmt.Sprintf("\n%s\n", m.err.Error()))
 		}
-		s += fmt.Sprintf("\n%s", m.keymaps.View())
+		builder.WriteString(fmt.Sprintf("\n%s", m.keymaps.View()))
 	}
-
 	if m.timer.Timedout() {
-		s = " Time is up!"
+		builder.WriteString(" Time is up!")
 	}
-	s += "\n"
 
-	return boldStyle.Render(s)
+	builder.WriteByte('\n')
+	return boldStyle.Render(builder.String())
 }
