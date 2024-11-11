@@ -38,14 +38,14 @@ var (
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "help" {
-		fmt.Printf("usage: %s <duration>.\n", os.Args[0])
-		fmt.Printf("example: %s 10m   # starts a timer of 10 minutes\n", os.Args[0])
+		print_help()
 		os.Exit(0)
 	}
 
 	timeout, err := time.ParseDuration(os.Args[1])
 	if err != nil {
-		fmt.Printf("Invalid duration provided.\nExample: 10m (10 minutes)")
+		fmt.Printf("invalid duration provided.\n")
+		print_help()
 		os.Exit(1)
 	}
 
@@ -54,6 +54,11 @@ func main() {
 		fmt.Println(errorStyle.Render("There's been an error:", err.Error()))
 		os.Exit(1)
 	}
+}
+
+func print_help() {
+	fmt.Printf("usage: %s <duration>.\n", os.Args[0])
+	fmt.Printf("example: %s 1h10m15s    # starts a timer of 1 hour 10 minutes and 15 seconds.\n", os.Args[0])
 }
 
 type model struct {
