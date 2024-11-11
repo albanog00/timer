@@ -14,7 +14,7 @@ type Model struct {
 	Add     key.Binding
 	StopAdd key.Binding
 	Send    key.Binding
-	Reset   key.Binding
+	Clear   key.Binding
 	Quit    key.Binding
 }
 
@@ -26,7 +26,7 @@ func New() Model {
 		Add:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		StopAdd: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "go back")),
 		Send:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
-		Reset:   key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reset")),
+		Clear:   key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear")),
 		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	}
 	m.Start.SetEnabled(false)
@@ -51,7 +51,7 @@ func (m Model) View() string {
 		m.Add,
 		m.StopAdd,
 		m.Send,
-		m.Reset,
+		m.Clear,
 		m.Quit,
 	})
 }
