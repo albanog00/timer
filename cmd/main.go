@@ -14,18 +14,34 @@ import (
 	"github.com/charmbracelet/bubbles/timer"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/term"
+)
+
+const (
+	interval          = time.Millisecond * 100
+	paddingVertical   = 1
+	paddingHorizontal = 4
+)
+
+var (
+	ui = lipgloss.NewStyle().
+		Padding(paddingVertical, paddingHorizontal).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.AdaptiveColor{
+			Light: "#000000",
+			Dark:  "#FFFFFF",
+		}).
+		Bold(true)
+	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#EA7B7E"))
+	logsStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#11F696"))
 )
 
 func main() {
-	if len(os.Args) < 2 {
+	if os.Args[1] == "help" || len(os.Args) < 2 {
 		fmt.Printf("usage: %s <duration>.\n", os.Args[0])
 		os.Exit(1)
 	}
 
-	if os.Args[1] == "help" {
-		fmt.Printf("usage: %s <duration>.\n", os.Args[0])
-		os.Exit(0)
-	}
 	timeout, err := time.ParseDuration(os.Args[1])
 	if err != nil {
 		fmt.Printf("Invalid duration provided.\nExample: 10m (10 minutes)")
@@ -33,21 +49,11 @@ func main() {
 	}
 
 	m := New(timeout)
-	if _, err := tea.NewProgram(m).Run(); err != nil {
-		fmt.Printf("There's been an error: %v\n", err)
+	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
+		fmt.Println(errorStyle.Render("There's been an error:", err.Error()))
 		os.Exit(1)
 	}
 }
-
-const (
-	interval = time.Millisecond * 100
-	padding  = 2
-	maxWidth = 80
-)
-
-var (
-	boldStyle = lipgloss.NewStyle().Bold(true)
-)
 
 type model struct {
 	timer     timer.Model
@@ -62,10 +68,13 @@ type model struct {
 	total   time.Duration
 	passed  time.Duration
 
+	width  int
+	height int
+
 	adding   bool
 	quitting bool
 
-	logs []string
+	logs string
 	err  error
 }
 
@@ -79,11 +88,6 @@ func New(timeout time.Duration) model {
 		end:       time.Now().Add(timeout),
 		initial:   timeout,
 		total:     timeout,
-		passed:    0,
-		adding:    false,
-		quitting:  false,
-		logs:      make([]string, 0),
-		err:       nil,
 	}
 }
 
@@ -123,6 +127,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 
+	case tea.WindowSizeMsg:
+		width, height, err := term.GetSize(int(os.Stdout.Fd()))
+		if err == nil {
+			m.width = width
+			m.height = height
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		if m.adding {
 			var cmd tea.Cmd
@@ -133,13 +145,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keymaps.Quit):
 			return m, tea.Quit
-		case key.Matches(msg, m.keymaps.Reset):
-			m.timer.Timeout = m.initial
-			m.total = m.initial
-			m.passed = time.Duration(0)
-			return m, m.progress.SetPercent(0)
+
+		case key.Matches(msg, m.keymaps.Clear):
+			m.logs = ""
+			m.err = nil
+			return m, nil
+
 		case key.Matches(msg, m.keymaps.Start, m.keymaps.Stop):
 			return m, m.timer.Toggle()
+
 		case key.Matches(msg, m.keymaps.Add):
 			m.adding = true
 			m.keymaps = m.keymapsToggleOnAdd()
@@ -163,14 +177,16 @@ func (m model) input(msg tea.KeyMsg) (model, tea.Cmd) {
 			if err != nil {
 				m.err = errors.New("Invalid input, try again.")
 				cmd = nil
-			} else if addTime.Abs() > time.Duration(0) {
+			} else {
 				m.timer.Timeout += addTime
 				m.total += addTime
 				m.end = m.end.Add(addTime)
-				if addTime < time.Duration(0) {
-					m.logs = append(m.logs, fmt.Sprintf(" > Removed %s", addTime.Abs().String()))
+				if addTime < 0 {
+					m.logs = fmt.Sprintf("> %s\n",
+						logsStyle.Render("Removed", addTime.Abs().String()))
 				} else {
-					m.logs = append(m.logs, fmt.Sprintf(" > Added %s", addTime.String()))
+					m.logs = fmt.Sprintf("> %s\n",
+						logsStyle.Render("Added", addTime.Abs().String()))
 				}
 			}
 		}
@@ -185,7 +201,7 @@ func (m model) keymapsToggleOnAdd() keymaps.Model {
 	m.keymaps.Stop.SetEnabled(!m.adding && m.timer.Running())
 	m.keymaps.Start.SetEnabled(!m.adding && !m.timer.Running())
 
-	m.keymaps.Reset.SetEnabled(!m.adding)
+	m.keymaps.Clear.SetEnabled(!m.adding)
 	m.keymaps.Quit.SetEnabled(!m.adding)
 	m.keymaps.Add.SetEnabled(!m.adding)
 
@@ -196,33 +212,31 @@ func (m model) keymapsToggleOnAdd() keymaps.Model {
 }
 
 func (m model) View() string {
-	builder := &bytes.Buffer{}
-	builder.WriteString(fmt.Sprintf(" %s - %s\n",
+	timerBuffer := &bytes.Buffer{}
+	timerBuffer.WriteString(fmt.Sprintf("%s - %s\n",
 		m.start.Format("Start: 15:04:05"),
 		m.end.Format("End: 15:04:05"),
 	))
-	builder.WriteString(fmt.Sprintf("\n - %s\n %s", m.timer.View(), m.progress.View()))
+	timerBuffer.WriteString(fmt.Sprintf("\n%s\n%s\n", m.timer.View(), m.progress.View()))
 
 	if !m.quitting {
-		for _, line := range m.logs {
-			builder.WriteString(fmt.Sprintf("\n%s", line))
-		}
+		timerBuffer.WriteString(m.logs)
 		if m.adding {
-			builder.WriteString(fmt.Sprintf(
-				"\n Please insert time to add.\n\n %s\n\n %s\n",
+			timerBuffer.WriteString(fmt.Sprintf(
+				"Insert time to add.\n%s\n",
 				m.textinput.View(),
-				"(esc to go back)",
 			))
 		}
 		if m.err != nil {
-			builder.WriteString(fmt.Sprintf("\n%s\n", m.err.Error()))
+			timerBuffer.WriteString(fmt.Sprintf("%s\n", errorStyle.Render(m.err.Error())))
 		}
-		builder.WriteString(fmt.Sprintf("\n%s", m.keymaps.View()))
+		timerBuffer.WriteString(fmt.Sprintf("%s", m.keymaps.View()))
 	}
 	if m.timer.Timedout() {
-		builder.WriteString(" Time is up!")
+		timerBuffer.WriteString("Time is up!")
 	}
 
-	builder.WriteByte('\n')
-	return boldStyle.Render(builder.String())
+	return lipgloss.Place(m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		ui.Render(timerBuffer.String()))
 }
