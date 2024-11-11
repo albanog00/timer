@@ -37,9 +37,10 @@ var (
 )
 
 func main() {
-	if os.Args[1] == "help" || len(os.Args) < 2 {
+	if len(os.Args) < 2 || os.Args[1] == "help" {
 		fmt.Printf("usage: %s <duration>.\n", os.Args[0])
-		os.Exit(1)
+		fmt.Printf("example: %s 10m   # starts a timer of 10 minutes\n", os.Args[0])
+		os.Exit(0)
 	}
 
 	timeout, err := time.ParseDuration(os.Args[1])
