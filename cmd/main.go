@@ -37,15 +37,15 @@ var (
 )
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] == "help" {
-		print_help()
+	if len(os.Args) != 2 || os.Args[1] == "help" {
+		printHelp()
 		os.Exit(0)
 	}
 
 	timeout, err := time.ParseDuration(os.Args[1])
 	if err != nil {
 		fmt.Printf("invalid duration provided.\n")
-		print_help()
+		printHelp()
 		os.Exit(1)
 	}
 
@@ -56,9 +56,9 @@ func main() {
 	}
 }
 
-func print_help() {
+func printHelp() {
 	fmt.Printf("usage: %s <duration>.\n", os.Args[0])
-	fmt.Printf("example: %s 1h10m15s    # starts a timer of 1 hour 10 minutes and 15 seconds.\n", os.Args[0])
+	fmt.Printf("example: %s 1h10m15s # starts a timer of 1 hour 10 minutes and 15 seconds.\n", os.Args[0])
 }
 
 type model struct {
@@ -73,6 +73,7 @@ type model struct {
 	initial time.Duration
 	total   time.Duration
 	passed  time.Duration
+	stopped time.Time
 
 	width  int
 	height int
@@ -84,8 +85,8 @@ type model struct {
 	err  error
 }
 
-func New(timeout time.Duration) model {
-	return model{
+func New(timeout time.Duration) *model {
+	return &model{
 		timer:     timer.NewWithInterval(timeout, interval),
 		textinput: textinput.New(),
 		progress:  progress.New(progress.WithDefaultGradient()),
@@ -101,7 +102,7 @@ func (m model) Init() tea.Cmd {
 	return m.timer.Init()
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case timer.TickMsg:
 		if !m.timer.Running() {
@@ -111,8 +112,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 
 		m.passed += m.timer.Interval
-		pct := m.passed.Milliseconds() * 100 / m.total.Milliseconds()
-		cmds = append(cmds, m.progress.SetPercent(float64(pct)/100))
+		cmds = append(cmds,
+			m.progress.SetPercent(
+				float64(m.passed.Microseconds())/float64(m.total.Microseconds()),
+			))
 
 		m.timer, cmd = m.timer.Update(msg)
 		cmds = append(cmds, cmd)
@@ -144,7 +147,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.adding {
 			var cmd tea.Cmd
-			m, cmd = m.input(msg)
+			cmd = m.input(msg)
 			return m, cmd
 		}
 
@@ -158,11 +161,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, m.keymaps.Start, m.keymaps.Stop):
+			if m.keymaps.Stop.Enabled() {
+				m.stopped = time.Now()
+			} else {
+				m.end = m.end.Add(time.Now().Sub(m.stopped))
+			}
+
+			m.keymaps.Start.SetEnabled(!m.keymaps.Start.Enabled())
+			m.keymaps.Stop.SetEnabled(!m.keymaps.Stop.Enabled())
+
 			return m, m.timer.Toggle()
 
 		case key.Matches(msg, m.keymaps.Add):
 			m.adding = true
-			m.keymaps = m.keymapsToggleOnAdd()
+			m.keymapsToggleOnAdd()
 			m.textinput.Focus()
 		}
 	}
@@ -170,7 +182,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) input(msg tea.KeyMsg) (model, tea.Cmd) {
+func (m *model) input(msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	m.textinput, cmd = m.textinput.Update(msg)
 
@@ -196,14 +208,14 @@ func (m model) input(msg tea.KeyMsg) (model, tea.Cmd) {
 				}
 			}
 		}
-		m.keymaps = m.keymapsToggleOnAdd()
+		m.keymapsToggleOnAdd()
 		m.textinput.Reset()
 	}
 
-	return m, cmd
+	return cmd
 }
 
-func (m model) keymapsToggleOnAdd() keymaps.Model {
+func (m *model) keymapsToggleOnAdd() {
 	m.keymaps.Stop.SetEnabled(!m.adding && m.timer.Running())
 	m.keymaps.Start.SetEnabled(!m.adding && !m.timer.Running())
 
@@ -213,36 +225,32 @@ func (m model) keymapsToggleOnAdd() keymaps.Model {
 
 	m.keymaps.StopAdd.SetEnabled(m.adding)
 	m.keymaps.Send.SetEnabled(m.adding)
-
-	return m.keymaps
 }
 
-func (m model) View() string {
-	timerBuffer := &bytes.Buffer{}
-	timerBuffer.WriteString(fmt.Sprintf("%s - %s\n",
+func (m *model) View() string {
+	buffer := &bytes.Buffer{}
+	buffer.WriteString(fmt.Sprintf("%s - %s\n",
 		m.start.Format("Start: 15:04:05"),
 		m.end.Format("End: 15:04:05"),
 	))
-	timerBuffer.WriteString(fmt.Sprintf("\n%s\n%s\n", m.timer.View(), m.progress.View()))
+	buffer.WriteString(fmt.Sprintf("\n%s\n%s\n", m.timer.View(), m.progress.View()))
 
 	if !m.quitting {
-		timerBuffer.WriteString(m.logs)
+		buffer.WriteString(m.logs)
 		if m.adding {
-			timerBuffer.WriteString(fmt.Sprintf(
+			buffer.WriteString(fmt.Sprintf(
 				"Insert time to add.\n%s\n",
 				m.textinput.View(),
 			))
 		}
 		if m.err != nil {
-			timerBuffer.WriteString(fmt.Sprintf("%s\n", errorStyle.Render(m.err.Error())))
+			buffer.WriteString(fmt.Sprintf("%s\n", errorStyle.Render(m.err.Error())))
 		}
-		timerBuffer.WriteString(fmt.Sprintf("%s", m.keymaps.View()))
+		buffer.WriteString(fmt.Sprintf("%s", m.keymaps.View()))
 	}
 	if m.timer.Timedout() {
-		timerBuffer.WriteString("Time is up!")
+		buffer.WriteString("Time is up!")
 	}
 
-	return lipgloss.Place(m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
-		ui.Render(timerBuffer.String()))
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, ui.Render(buffer.String()))
 }
