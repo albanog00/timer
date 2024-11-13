@@ -13,7 +13,7 @@ print_help () {
     echo "Commands:"
     echo "  run            Builds the binary at 'cmd/main.go' in 'build/timer'."
     echo "  install        Copies the binary at 'build/timer' in '/usr/bin/timer'."
-    echo "  installsymlink Create a symlink of 'build/timer' in '/ust/bin/timer'."
+    echo "  installsymlink Create a symlink of 'build/timer' in '/usr/bin/timer'."
 }
 
 if [ $# = 0 ]; then
