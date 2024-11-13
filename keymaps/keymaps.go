@@ -7,7 +7,7 @@ import (
 )
 
 type Model struct {
-	help help.Model
+	help *help.Model
 
 	Start   key.Binding
 	Stop    key.Binding
@@ -19,8 +19,10 @@ type Model struct {
 }
 
 func New() Model {
+	help := help.New()
+
 	m := Model{
-		help:    help.New(),
+		help:    &help,
 		Stop:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		Start:   key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "start")),
 		Add:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
