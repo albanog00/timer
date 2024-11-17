@@ -23,7 +23,8 @@ func main() {
 	}
 
 	m := timer.New(timeout)
-	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
+	program := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := program.Run(); err != nil {
 		os.Exit(1)
 	}
 }

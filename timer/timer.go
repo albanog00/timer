@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -14,7 +13,6 @@ import (
 	"github.com/charmbracelet/bubbles/timer"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"golang.org/x/term"
 )
 
 const (
@@ -46,8 +44,8 @@ type Model struct {
 	end     time.Time
 	stopped time.Time
 
-	total  time.Duration
-	passed time.Duration
+	total  float64
+	passed float64
 
 	width  int
 	height int
@@ -71,7 +69,7 @@ func New(timeout time.Duration) *Model {
 		keymaps:   &keymaps,
 		start:     time.Now(),
 		end:       time.Now().Add(timeout),
-		total:     timeout,
+		total:     timeout.Seconds(),
 	}
 }
 
@@ -82,42 +80,21 @@ func (m Model) Init() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case timer.TickMsg:
-		if !m.timer.Running() {
-			return m, nil
-		}
-		var cmds []tea.Cmd
 		var cmd tea.Cmd
-
-		m.passed += m.timer.Interval
-		cmds = append(cmds,
-			m.progress.SetPercent(
-				float64(m.passed.Milliseconds())/float64(m.total.Milliseconds()),
-			))
+		if !m.timer.Running() {
+			break
+		}
+		m.passed += m.timer.Interval.Seconds()
 		*m.timer, cmd = m.timer.Update(msg)
-		cmds = append(cmds, cmd)
-
-		return m, tea.Batch(cmds...)
+		return m, cmd
 
 	case timer.StartStopMsg:
 		var cmd tea.Cmd
 		*m.timer, cmd = m.timer.Update(msg)
-		return m, tea.Batch(cmd)
-
-	case progress.FrameMsg:
-		progressModel, cmd := m.progress.Update(msg)
-		*m.progress = progressModel.(progress.Model)
 		return m, cmd
 
 	case timer.TimeoutMsg:
 		return m, tea.Quit
-
-	case tea.WindowSizeMsg:
-		width, height, err := term.GetSize(int(os.Stdout.Fd()))
-		if err == nil {
-			m.width = width
-			m.height = height
-		}
-		return m, nil
 
 	case tea.KeyMsg:
 		if m.adding {
@@ -152,6 +129,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.keymapsToggleOnAdd()
 			m.textinput.Focus()
 		}
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 	}
 
 	return m, nil
@@ -172,7 +153,7 @@ func (m *Model) input(msg tea.KeyMsg) tea.Cmd {
 				cmd = nil
 			} else {
 				m.timer.Timeout += addTime
-				m.total += addTime
+				m.total += addTime.Seconds()
 				m.end = m.end.Add(addTime)
 				if addTime < 0 {
 					m.logs = fmt.Sprintf("> %s\n",
@@ -211,7 +192,7 @@ func (m *Model) View() string {
 	buffer.WriteByte('\n')
 	buffer.WriteString(m.timer.View())
 	buffer.WriteByte('\n')
-	buffer.WriteString(m.progress.View())
+	buffer.WriteString(m.progress.ViewAs(m.passed / m.total))
 	buffer.WriteByte('\n')
 	buffer.WriteString(m.logs)
 	if m.adding {
@@ -224,5 +205,11 @@ func (m *Model) View() string {
 		buffer.WriteByte('\n')
 	}
 	buffer.WriteString(m.keymaps.View())
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, ui.Render(buffer.String()))
+
+	return lipgloss.Place(m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		lipgloss.JoinVertical(lipgloss.Center,
+			time.Now().Format("15:04:05"),
+			ui.Render(buffer.String()),
+		))
 }
